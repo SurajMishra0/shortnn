@@ -1,0 +1,16 @@
+# Data files
+data/urls.json
+data/visits/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Gemini
+.gemini/

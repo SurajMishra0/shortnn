@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ShortNN — URL Shortener</title>
+    <meta name="description" content="A fast, minimal URL shortener with visit tracking.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <div class="app">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <span class="logo-icon">⚡</span>
+                <h1>Short<span class="accent">NN</span></h1>
+            </div>
+            <button class="btn-icon" id="settingsToggle" title="Settings">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="3" />
+                    <path
+                        d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.32 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                </svg>
+            </button>
+        </header>
+
+        <!-- Settings Panel (collapsible) -->
+        <div class="settings-panel" id="settingsPanel">
+            <div class="settings-card">
+                <label for="basePath">Public URL Base Path</label>
+                <p class="hint">The base URL where your short links will be served from, e.g.
+                    <code>https://yourdomain.com/s/</code></p>
+                <div class="input-row">
+                    <input type="text" id="basePath" placeholder="https://yourdomain.com/s/">
+                    <button class="btn btn-sm" id="saveSettings">Save</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Create Short URL -->
+        <section class="create-section">
+            <div class="card glass">
+                <h2>Shorten a URL</h2>
+                <div class="form-group">
+                    <label for="longUrl">Destination URL</label>
+                    <input type="url" id="longUrl" placeholder="https://example.com/your-very-long-url-here" required>
+                </div>
+                <div class="form-group">
+                    <label for="customSlug">Custom Slug <span class="optional">(optional)</span></label>
+                    <input type="text" id="customSlug" placeholder="my-link">
+                </div>
+                <button class="btn btn-primary" id="shortenBtn">
+                    <span>Shorten</span>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="5" y1="12" x2="19" y2="12" />
+                        <polyline points="12 5 19 12 12 19" />
+                    </svg>
+                </button>
+                <div class="result" id="result" style="display:none;">
+                    <span class="result-label">Your short URL:</span>
+                    <div class="result-url-row">
+                        <a href="#" id="resultLink" target="_blank" class="result-url"></a>
+                        <button class="btn-icon copy-btn" id="copyBtn" title="Copy">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="error" id="error" style="display:none;"></div>
+            </div>
+        </section>
+
+        <!-- URL List -->
+        <section class="list-section">
+            <div class="section-header">
+                <h2>Your Links</h2>
+                <span class="badge" id="totalCount">0</span>
+            </div>
+            <div class="table-wrap">
+                <table id="urlTable">
+                    <thead>
+                        <tr>
+                            <th>Short Code</th>
+                            <th>Destination</th>
+                            <th>Created</th>
+                            <th>Visits</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="urlTableBody">
+                        <!-- Populated by JS -->
+                    </tbody>
+                </table>
+                <div class="empty-state" id="emptyState">
+                    <p>No short URLs yet. Create your first one above! ☝️</p>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- Stats Modal -->
+    <div class="modal-overlay" id="modalOverlay"></div>
+    <div class="modal" id="statsModal">
+        <div class="modal-header">
+            <div>
+                <h2 id="statsTitle">Link Stats</h2>
+                <p class="modal-subtitle" id="statsUrl"></p>
+            </div>
+            <button class="btn-icon" id="closeModal" title="Close">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+            </button>
+        </div>
+
+        <!-- Summary Cards -->
+        <div class="stats-summary" id="statsSummary">
+            <div class="stat-card">
+                <span class="stat-value" id="statTotal">0</span>
+                <span class="stat-label">Total Visits</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-value stat-humans" id="statHumans">0</span>
+                <span class="stat-label">Humans</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-value stat-bots" id="statBots">0</span>
+                <span class="stat-label">Bots</span>
+            </div>
+        </div>
+
+        <!-- Country Breakdown -->
+        <div class="stats-section">
+            <h3>Countries</h3>
+            <div class="country-list" id="countryList"></div>
+        </div>
+
+        <!-- Visitor Log -->
+        <div class="stats-section">
+            <h3>Recent Visitors</h3>
+            <div class="visitor-log" id="visitorLog"></div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script src="script.js"></script>
+</body>
+
+</html>
