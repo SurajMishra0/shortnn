@@ -1,7 +1,6 @@
 (() => {
     'use strict';
 
-    // ── DOM refs ──
     const $ = id => document.getElementById(id);
     const longUrlInput = $('longUrl');
     const customSlugInput = $('customSlug');
@@ -20,7 +19,6 @@
     const saveSettingsBtn = $('saveSettings');
     const toast = $('toast');
 
-    // Modal refs
     const modalOverlay = $('modalOverlay');
     const statsModal = $('statsModal');
     const closeModal = $('closeModal');
@@ -34,7 +32,28 @@
 
     const API = 'api.php';
 
-    // ── Country code → flag emoji ──
+    // ────────────────────────────────
+    // Antibot: Pre-fetch token on page load (instant, invisible)
+    // ────────────────────────────────
+    let authToken = { tk: 0, ts: '' };
+
+    async function fetchToken() {
+        try {
+            const res = await fetch(`${API}?action=token`);
+            const data = await res.json();
+            if (data.success) {
+                authToken = { tk: data.tk, ts: data.ts };
+            }
+        } catch { /* silent */ }
+    }
+
+    // Grab token immediately on load — by the time user types a URL, it's ready
+    fetchToken();
+    // Refresh token every 5 minutes to keep it valid
+    setInterval(fetchToken, 300000);
+
+    // ────────────────────────────────
+
     function countryFlag(code) {
         if (!code || code === 'XX') return '🌍';
         return String.fromCodePoint(
@@ -42,16 +61,13 @@
         );
     }
 
-    // ── Settings ──
     function getBasePath() {
         return localStorage.getItem('shortnn_basePath') || (window.location.origin + window.location.pathname.replace(/\/[^/]*$/, '/'));
     }
 
     basePathInput.value = localStorage.getItem('shortnn_basePath') || '';
 
-    settingsToggle.addEventListener('click', () => {
-        settingsPanel.classList.toggle('open');
-    });
+    settingsToggle.addEventListener('click', () => settingsPanel.classList.toggle('open'));
 
     saveSettingsBtn.addEventListener('click', () => {
         let val = basePathInput.value.trim();
@@ -61,7 +77,6 @@
         settingsPanel.classList.remove('open');
     });
 
-    // ── Toast ──
     let toastTimer;
     function showToast(msg) {
         toast.textContent = msg;
@@ -70,37 +85,7 @@
         toastTimer = setTimeout(() => toast.classList.remove('show'), 2500);
     }
 
-    // ────────────────────────────────────
-    // Proof-of-Work Challenge Solver
-    // ────────────────────────────────────
-
-    // SHA-256 hash using Web Crypto API
-    async function sha256(message) {
-        const data = new TextEncoder().encode(message);
-        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-    }
-
-    // Solve the PoW challenge: find X where SHA256(nonce + X) starts with N zeros
-    async function solveChallenge(nonce, difficulty) {
-        const prefix = '0'.repeat(difficulty);
-        let attempts = 0;
-        while (true) {
-            const candidate = String(attempts);
-            const hash = await sha256(nonce + candidate);
-            if (hash.startsWith(prefix)) {
-                return candidate;
-            }
-            attempts++;
-            // Yield to UI every 500 attempts to prevent freezing
-            if (attempts % 500 === 0) {
-                await new Promise(r => setTimeout(r, 0));
-            }
-        }
-    }
-
-    // ── Create Short URL (with antibot challenge) ──
+    // ── Create Short URL ──
     shortenBtn.addEventListener('click', async () => {
         const url = longUrlInput.value.trim();
         if (!url) { longUrlInput.focus(); return; }
@@ -108,30 +93,14 @@
         hideResult();
         hideError();
         shortenBtn.disabled = true;
-        shortenBtn.querySelector('span').textContent = 'Solving challenge…';
+        shortenBtn.querySelector('span').textContent = 'Creating…';
 
         try {
-            // Step 1: Get a challenge from the server
-            const chalRes = await fetch(`${API}?action=challenge`);
-            const chalData = await chalRes.json();
-            if (!chalData.success) throw new Error('Failed to get security challenge');
-
-            const { nonce, timestamp, token, difficulty } = chalData.challenge;
-
-            // Step 2: Solve the proof-of-work
-            shortenBtn.querySelector('span').textContent = 'Verifying…';
-            const solution = await solveChallenge(nonce, difficulty);
-
-            // Step 3: Submit with challenge proof + honeypot
-            shortenBtn.querySelector('span').textContent = 'Creating…';
-
             const body = new URLSearchParams({
                 url,
-                _cn: nonce,
-                _ct: String(timestamp),
-                _ck: token,
-                _cs: solution,
-                website: honeypotInput ? honeypotInput.value : '', // honeypot
+                _tk: String(authToken.tk),
+                _ts: authToken.ts,
+                website: honeypotInput ? honeypotInput.value : '',
             });
             const slug = customSlugInput.value.trim();
             if (slug) body.append('slug', slug);
@@ -148,6 +117,9 @@
 
             longUrlInput.value = '';
             customSlugInput.value = '';
+
+            // Refresh token for next creation
+            fetchToken();
             loadUrls();
         } catch (err) {
             showError(err.message);
@@ -157,21 +129,13 @@
         }
     });
 
-    // Allow pressing Enter in the URL input
-    longUrlInput.addEventListener('keydown', e => {
-        if (e.key === 'Enter') shortenBtn.click();
-    });
-    customSlugInput.addEventListener('keydown', e => {
-        if (e.key === 'Enter') shortenBtn.click();
-    });
+    longUrlInput.addEventListener('keydown', e => { if (e.key === 'Enter') shortenBtn.click(); });
+    customSlugInput.addEventListener('keydown', e => { if (e.key === 'Enter') shortenBtn.click(); });
 
-    // ── Copy ──
     copyBtn.addEventListener('click', () => {
-        const url = resultLink.textContent;
-        navigator.clipboard.writeText(url).then(() => showToast('Copied to clipboard!')).catch(() => { });
+        navigator.clipboard.writeText(resultLink.textContent).then(() => showToast('Copied to clipboard!')).catch(() => { });
     });
 
-    // ── Helpers ──
     function buildShortUrl(code) {
         const base = getBasePath();
         return `${base}r.php?c=${encodeURIComponent(code)}`;
@@ -205,7 +169,6 @@
             emptyState.style.display = 'none';
             document.querySelector('table').style.display = 'table';
 
-            // Sort by created date descending
             codes.sort((a, b) => new Date(urls[b].created) - new Date(urls[a].created));
 
             urlTableBody.innerHTML = codes.map(code => {
@@ -239,12 +202,9 @@
                 </tr>`;
             }).join('');
 
-        } catch {
-            // Silently fail on load
-        }
+        } catch { /* silent */ }
     }
 
-    // ── Delete ──
     window.deleteUrl = async (code) => {
         if (!confirm(`Delete short URL "${code}"?`)) return;
         try {
@@ -253,10 +213,7 @@
                 body: new URLSearchParams({ code })
             });
             const data = await res.json();
-            if (data.success) {
-                showToast('Deleted');
-                loadUrls();
-            }
+            if (data.success) { showToast('Deleted'); loadUrls(); }
         } catch {
             showToast('Failed to delete');
         }
@@ -280,18 +237,13 @@
             const res = await fetch(`${API}?action=stats&code=${encodeURIComponent(code)}`);
             const data = await res.json();
 
-            if (!data.success) {
-                showToast(data.error || 'Failed to load stats');
-                closeStatsModal();
-                return;
-            }
+            if (!data.success) { showToast(data.error || 'Failed'); closeStatsModal(); return; }
 
             statsUrl.textContent = data.url;
             statTotal.textContent = data.total;
             statHumans.textContent = data.summary.humans;
             statBots.textContent = data.summary.bots;
 
-            // ── Country breakdown ──
             const countries = data.summary.countries;
             const countryEntries = Object.entries(countries);
             if (countryEntries.length === 0) {
@@ -314,7 +266,6 @@
                 }).join('');
             }
 
-            // ── Visitor log ──
             if (data.visits.length === 0) {
                 visitorLog.innerHTML = '<p class="visitor-empty">No visitors yet</p>';
             } else {
@@ -327,14 +278,10 @@
                     const badge = v.is_bot
                         ? '<span class="badge-bot">BOT</span>'
                         : '<span class="badge-human">Human</span>';
-
                     return `
                     <div class="visitor-entry">
                         <div class="visitor-top">
-                            <span>
-                                <span class="visitor-ip">${escapeHtml(v.ip)}</span>
-                                ${badge}
-                            </span>
+                            <span><span class="visitor-ip">${escapeHtml(v.ip)}</span>${badge}</span>
                             <span class="visitor-time">${time}</span>
                         </div>
                         <div class="visitor-location">${countryFlag(v.country_code)} ${escapeHtml(location)}${v.isp ? ' · ' + escapeHtml(v.isp) : ''}</div>
@@ -342,11 +289,7 @@
                     </div>`;
                 }).join('');
             }
-
-        } catch {
-            showToast('Failed to load stats');
-            closeStatsModal();
-        }
+        } catch { showToast('Failed to load stats'); closeStatsModal(); }
     };
 
     function closeStatsModal() {
@@ -367,9 +310,6 @@
         return div.innerHTML;
     }
 
-    // ── Init ──
     loadUrls();
-
-    // Auto-refresh visit counts every 30s
     setInterval(loadUrls, 30000);
 })();
