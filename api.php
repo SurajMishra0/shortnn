@@ -1,21 +1,44 @@
 <?php
 /**
  * ShortNN — API Backend
- * Handles create, list, and delete operations for short URLs.
+ * Handles create, list, delete, stats operations for short URLs.
  * Data is stored in data/urls.json with file locking.
+ *
+ * Antibot protections on the CREATE endpoint:
+ * 1. Rate limiting (per-IP, max 15 creates/hour)
+ * 2. Honeypot field (hidden field must be empty)
+ * 3. JS proof-of-work challenge (SHA-256 hash verification)
+ * 4. Time gate (reject submissions < 2s after token issued)
+ * 5. Bot UA blocking (reject known bot user agents)
  */
 
 header('Content-Type: application/json');
 
 define('DATA_FILE', __DIR__ . '/data/urls.json');
+define('RATE_DIR', __DIR__ . '/data/ratelimit');
+define('RATE_LIMIT', 15);        // Max URL creates per IP per hour
+define('TIME_GATE_SEC', 2);      // Minimum seconds before submission allowed
+define('CHALLENGE_SECRET', 'shortnn_' . (__DIR__));  // Server-side secret for challenge
 
-// ── Ensure data file exists ──
+// ── Known bot UAs (block on create) ──
+$BLOCKED_UAS = [
+    'bot', 'crawl', 'spider', 'slurp', 'semrush', 'ahrefsbot',
+    'mj12bot', 'dotbot', 'petalbot', 'python-requests', 'python-urllib',
+    'curl', 'wget', 'httpclient', 'java/', 'go-http-client', 'okhttp',
+    'headlesschrome', 'phantomjs', 'puppeteer', 'scrapy', 'selenium',
+    'mechanize', 'libwww-perl', 'lwp-', 'httpie',
+];
+
+// ── Ensure data dir exists ──
 if (!file_exists(DATA_FILE)) {
     @mkdir(dirname(DATA_FILE), 0755, true);
     file_put_contents(DATA_FILE, '{}');
 }
 
-// ── Read data (with shared lock) ──
+// ────────────────────────────────────────
+// Core data functions
+// ────────────────────────────────────────
+
 function readData(): array {
     $fp = fopen(DATA_FILE, 'r');
     flock($fp, LOCK_SH);
@@ -26,7 +49,6 @@ function readData(): array {
     return is_array($data) ? $data : [];
 }
 
-// ── Write data (with exclusive lock) ──
 function writeData(array $data): void {
     $fp = fopen(DATA_FILE, 'c');
     flock($fp, LOCK_EX);
@@ -37,7 +59,6 @@ function writeData(array $data): void {
     fclose($fp);
 }
 
-// ── Generate random code ──
 function generateCode(int $length = 6): string {
     $chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     $code = '';
@@ -47,21 +68,121 @@ function generateCode(int $length = 6): string {
     return $code;
 }
 
-// ── Validate URL ──
 function isValidUrl(string $url): bool {
     return (bool) filter_var($url, FILTER_VALIDATE_URL);
 }
 
-// ── Validate slug ──
 function isValidSlug(string $slug): bool {
     return (bool) preg_match('/^[a-zA-Z0-9_-]{1,64}$/', $slug);
 }
 
-// ── JSON response ──
 function respond(array $payload, int $status = 200): void {
     http_response_code($status);
     echo json_encode($payload);
     exit;
+}
+
+// ────────────────────────────────────────
+// Antibot: Rate Limiting (file-based)
+// ────────────────────────────────────────
+
+function checkRateLimit(string $ip): bool {
+    @mkdir(RATE_DIR, 0755, true);
+    $file = RATE_DIR . '/' . md5($ip) . '.json';
+
+    $now = time();
+    $windowStart = $now - 3600; // 1-hour window
+
+    $entries = [];
+    if (file_exists($file)) {
+        $entries = json_decode(file_get_contents($file), true) ?? [];
+        // Prune old entries
+        $entries = array_filter($entries, fn($t) => $t > $windowStart);
+    }
+
+    if (count($entries) >= RATE_LIMIT) {
+        return false; // Rate limited
+    }
+
+    $entries[] = $now;
+    file_put_contents($file, json_encode(array_values($entries)));
+    return true;
+}
+
+// ────────────────────────────────────────
+// Antibot: Challenge Token
+// ────────────────────────────────────────
+
+function generateChallenge(): array {
+    $timestamp = time();
+    $nonce = bin2hex(random_bytes(8));
+    // The challenge: client must find a string X such that
+    // SHA256(nonce + X) starts with "00" (2 hex zeros = easy, ~1/256 attempts)
+    $token = hash_hmac('sha256', "$nonce:$timestamp", CHALLENGE_SECRET);
+    return [
+        'nonce'     => $nonce,
+        'timestamp' => $timestamp,
+        'token'     => $token,
+        'difficulty' => 2, // number of leading hex zeros required
+    ];
+}
+
+function verifyChallenge(string $nonce, int $timestamp, string $token, string $solution, int $difficulty = 2): bool {
+    // 1. Verify token authenticity (not forged)
+    $expectedToken = hash_hmac('sha256', "$nonce:$timestamp", CHALLENGE_SECRET);
+    if (!hash_equals($expectedToken, $token)) {
+        return false;
+    }
+
+    // 2. Check time gate
+    $elapsed = time() - $timestamp;
+    if ($elapsed < TIME_GATE_SEC) {
+        return false; // Too fast
+    }
+
+    // 3. Check token not too old (5 minutes max)
+    if ($elapsed > 300) {
+        return false;
+    }
+
+    // 4. Verify proof-of-work: SHA256(nonce + solution) must start with N zeros
+    $hash = hash('sha256', $nonce . $solution);
+    $prefix = str_repeat('0', $difficulty);
+    return str_starts_with($hash, $prefix);
+}
+
+// ────────────────────────────────────────
+// Antibot: Bot UA check
+// ────────────────────────────────────────
+
+function isBlockedUA(string $ua): bool {
+    global $BLOCKED_UAS;
+    $uaLower = strtolower($ua);
+    foreach ($BLOCKED_UAS as $pattern) {
+        if (str_contains($uaLower, $pattern)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// ────────────────────────────────────────
+// Antibot: Cleanup stale rate limit files
+// ────────────────────────────────────────
+
+function cleanupRateLimits(): void {
+    if (!is_dir(RATE_DIR)) return;
+    $cutoff = time() - 7200; // 2 hours
+    foreach (glob(RATE_DIR . '/*.json') as $file) {
+        if (filemtime($file) < $cutoff) {
+            @unlink($file);
+        }
+    }
+}
+
+// Run cleanup ~1% of requests
+if (random_int(1, 100) === 1) {
+    cleanupRateLimits();
 }
 
 // ── Router ──
@@ -70,13 +191,56 @@ $action = $_GET['action'] ?? '';
 switch ($action) {
 
     // ──────────────────────────────
-    // CREATE
+    // CHALLENGE — client requests a PoW challenge before creating
+    // ──────────────────────────────
+    case 'challenge':
+        $challenge = generateChallenge();
+        respond(['success' => true, 'challenge' => $challenge]);
+        break;
+
+    // ──────────────────────────────
+    // CREATE (protected)
     // ──────────────────────────────
     case 'create':
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             respond(['success' => false, 'error' => 'POST required'], 405);
         }
 
+        $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+        $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
+
+        // ── Protection 1: Block bot UAs ──
+        if (!$ua || isBlockedUA($ua)) {
+            respond(['success' => false, 'error' => 'Request blocked'], 403);
+        }
+
+        // ── Protection 2: Honeypot ──
+        $honeypot = trim($_POST['website'] ?? '');
+        if ($honeypot !== '') {
+            // Bots fill hidden fields — silently reject with fake success
+            respond(['success' => true, 'code' => generateCode(), 'url' => 'https://example.com']);
+        }
+
+        // ── Protection 3: Rate limiting ──
+        if (!checkRateLimit($ip)) {
+            respond(['success' => false, 'error' => 'Rate limit exceeded. Try again later.'], 429);
+        }
+
+        // ── Protection 4 & 5: JS challenge verification ──
+        $chalNonce     = trim($_POST['_cn'] ?? '');
+        $chalTimestamp  = (int)($_POST['_ct'] ?? 0);
+        $chalToken     = trim($_POST['_ck'] ?? '');
+        $chalSolution  = trim($_POST['_cs'] ?? '');
+
+        if (!$chalNonce || !$chalTimestamp || !$chalToken || !$chalSolution) {
+            respond(['success' => false, 'error' => 'Security challenge required'], 403);
+        }
+
+        if (!verifyChallenge($chalNonce, $chalTimestamp, $chalToken, $chalSolution)) {
+            respond(['success' => false, 'error' => 'Security challenge failed. Please try again.'], 403);
+        }
+
+        // ── All protections passed — process URL creation ──
         $url = trim($_POST['url'] ?? '');
         $slug = trim($_POST['slug'] ?? '');
 
@@ -84,7 +248,6 @@ switch ($action) {
             respond(['success' => false, 'error' => 'URL is required'], 400);
         }
 
-        // Add protocol if missing
         if (!preg_match('#^https?://#i', $url)) {
             $url = 'https://' . $url;
         }
@@ -95,7 +258,6 @@ switch ($action) {
 
         $data = readData();
 
-        // Custom slug or auto-generate
         if ($slug) {
             if (!isValidSlug($slug)) {
                 respond(['success' => false, 'error' => 'Slug can only contain letters, numbers, hyphens, and underscores (max 64 chars)'], 400);
@@ -105,7 +267,6 @@ switch ($action) {
             }
             $code = $slug;
         } else {
-            // Generate unique code
             do {
                 $code = generateCode();
             } while (isset($data[$code]));
@@ -200,7 +361,6 @@ switch ($action) {
             fclose($vfp);
         }
 
-        // Build summary
         $countries = [];
         $botCount = 0;
         $humanCount = 0;
@@ -225,7 +385,7 @@ switch ($action) {
                 'bots'      => $botCount,
                 'humans'    => $humanCount,
             ],
-            'visits'  => array_reverse($visits), // newest first
+            'visits'  => array_reverse($visits),
         ]);
         break;
 

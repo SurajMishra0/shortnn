@@ -5,6 +5,7 @@
     const $ = id => document.getElementById(id);
     const longUrlInput = $('longUrl');
     const customSlugInput = $('customSlug');
+    const honeypotInput = $('honeypot');
     const shortenBtn = $('shortenBtn');
     const resultBox = $('result');
     const resultLink = $('resultLink');
@@ -69,7 +70,37 @@
         toastTimer = setTimeout(() => toast.classList.remove('show'), 2500);
     }
 
-    // ── Create Short URL ──
+    // ────────────────────────────────────
+    // Proof-of-Work Challenge Solver
+    // ────────────────────────────────────
+
+    // SHA-256 hash using Web Crypto API
+    async function sha256(message) {
+        const data = new TextEncoder().encode(message);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    // Solve the PoW challenge: find X where SHA256(nonce + X) starts with N zeros
+    async function solveChallenge(nonce, difficulty) {
+        const prefix = '0'.repeat(difficulty);
+        let attempts = 0;
+        while (true) {
+            const candidate = String(attempts);
+            const hash = await sha256(nonce + candidate);
+            if (hash.startsWith(prefix)) {
+                return candidate;
+            }
+            attempts++;
+            // Yield to UI every 500 attempts to prevent freezing
+            if (attempts % 500 === 0) {
+                await new Promise(r => setTimeout(r, 0));
+            }
+        }
+    }
+
+    // ── Create Short URL (with antibot challenge) ──
     shortenBtn.addEventListener('click', async () => {
         const url = longUrlInput.value.trim();
         if (!url) { longUrlInput.focus(); return; }
@@ -77,10 +108,31 @@
         hideResult();
         hideError();
         shortenBtn.disabled = true;
-        shortenBtn.querySelector('span').textContent = 'Creating…';
+        shortenBtn.querySelector('span').textContent = 'Solving challenge…';
 
         try {
-            const body = new URLSearchParams({ url });
+            // Step 1: Get a challenge from the server
+            const chalRes = await fetch(`${API}?action=challenge`);
+            const chalData = await chalRes.json();
+            if (!chalData.success) throw new Error('Failed to get security challenge');
+
+            const { nonce, timestamp, token, difficulty } = chalData.challenge;
+
+            // Step 2: Solve the proof-of-work
+            shortenBtn.querySelector('span').textContent = 'Verifying…';
+            const solution = await solveChallenge(nonce, difficulty);
+
+            // Step 3: Submit with challenge proof + honeypot
+            shortenBtn.querySelector('span').textContent = 'Creating…';
+
+            const body = new URLSearchParams({
+                url,
+                _cn: nonce,
+                _ct: String(timestamp),
+                _ck: token,
+                _cs: solution,
+                website: honeypotInput ? honeypotInput.value : '', // honeypot
+            });
             const slug = customSlugInput.value.trim();
             if (slug) body.append('slug', slug);
 
@@ -220,7 +272,6 @@
         countryList.innerHTML = '<p class="country-empty">Loading…</p>';
         visitorLog.innerHTML = '<p class="visitor-empty">Loading…</p>';
 
-        // Open modal
         modalOverlay.classList.add('open');
         statsModal.classList.add('open');
         document.body.style.overflow = 'hidden';
@@ -249,7 +300,6 @@
                 const maxCount = Math.max(...countryEntries.map(([, c]) => c));
                 countryList.innerHTML = countryEntries.map(([name, count]) => {
                     const pct = (count / maxCount) * 100;
-                    // Try to find country code from visits
                     const visit = data.visits.find(v => v.country === name);
                     const cc = visit ? visit.country_code : 'XX';
                     return `

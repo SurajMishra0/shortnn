@@ -35,7 +35,8 @@
             <div class="settings-card">
                 <label for="basePath">Public URL Base Path</label>
                 <p class="hint">The base URL where your short links will be served from, e.g.
-                    <code>https://yourdomain.com/s/</code></p>
+                    <code>https://yourdomain.com/s/</code>
+                </p>
                 <div class="input-row">
                     <input type="text" id="basePath" placeholder="https://yourdomain.com/s/">
                     <button class="btn btn-sm" id="saveSettings">Save</button>
@@ -54,6 +55,11 @@
                 <div class="form-group">
                     <label for="customSlug">Custom Slug <span class="optional">(optional)</span></label>
                     <input type="text" id="customSlug" placeholder="my-link">
+                </div>
+                <!-- Honeypot: invisible to humans, bots auto-fill it -->
+                <div style="position:absolute;left:-9999px;opacity:0;height:0;overflow:hidden;" aria-hidden="true">
+                    <label for="website">Website</label>
+                    <input type="text" id="honeypot" name="website" tabindex="-1" autocomplete="off">
                 </div>
                 <button class="btn btn-primary" id="shortenBtn">
                     <span>Shorten</span>
