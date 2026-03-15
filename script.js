@@ -232,7 +232,7 @@
                             <button class="btn-icon btn-stats" onclick="openStats('${escapeHtml(code)}')" title="View Stats">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
                             </button>
-                            <button class="btn-icon" onclick="editUrl('${escapeHtml(code)}', '${escapeHtml(entry.url).replace(/'/g, "\\'")}')" title="Edit Destination">
+                            <button class="btn-icon" onclick="editUrl('${escapeHtml(code)}', decodeURIComponent('${encodeURIComponent(entry.url)}'))" title="Edit Destination">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
                             </button>
                             <button class="btn-icon btn-danger" onclick="deleteUrl('${escapeHtml(code)}')" title="Delete">
