@@ -321,11 +321,22 @@ switch ($action) {
         }
 
         $countries = [];
-        $botCount = $humanCount = 0;
+        $botCount = $suspiciousCount = $humanCount = 0;
+        $uniqueIps = [];
+        $totalScore = 0;
+
         foreach ($visits as $v) {
             $c = $v['country'] ?? 'Unknown';
             $countries[$c] = ($countries[$c] ?? 0) + 1;
-            if ($v['is_bot'] ?? false) $botCount++; else $humanCount++;
+            $uniqueIps[$v['ip'] ?? ''] = true;
+            $totalScore += ($v['suspicion_score'] ?? 0);
+
+            $type = $v['type'] ?? ($v['is_bot'] ? 'bot' : 'human');
+            switch ($type) {
+                case 'bot':        $botCount++; break;
+                case 'suspicious': $suspiciousCount++; break;
+                default:           $humanCount++; break;
+            }
         }
         arsort($countries);
 
@@ -333,7 +344,14 @@ switch ($action) {
             'success' => true, 'code' => $code,
             'url'     => $data[$code]['url'],
             'total'   => $data[$code]['visits'],
-            'summary' => ['countries' => $countries, 'bots' => $botCount, 'humans' => $humanCount],
+            'summary' => [
+                'countries'  => $countries,
+                'bots'       => $botCount,
+                'suspicious' => $suspiciousCount,
+                'humans'     => $humanCount,
+                'unique_ips' => count($uniqueIps),
+                'avg_score'  => count($visits) > 0 ? round($totalScore / count($visits)) : 0,
+            ],
             'visits'  => array_reverse($visits),
         ]);
         break;

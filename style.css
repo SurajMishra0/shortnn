@@ -20,6 +20,7 @@
     --accent-glow: rgba(108, 92, 231, 0.25);
     --green: #00cec9;
     --red: #ff6b6b;
+    --amber: #fdcb6e;
     --radius: 12px;
     --radius-sm: 8px;
     --font: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -530,8 +531,8 @@ td .visits svg {
 /* ── Summary Cards ── */
 .stats-summary {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 0.75rem;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 0.5rem;
     margin-bottom: 1.5rem;
 }
 
@@ -552,6 +553,10 @@ td .visits svg {
 
 .stat-value.stat-humans {
     color: var(--green);
+}
+
+.stat-value.stat-suspicious {
+    color: var(--amber);
 }
 
 .stat-value.stat-bots {
@@ -695,6 +700,19 @@ td .visits svg {
     margin-left: 0.5rem;
 }
 
+.badge-suspicious {
+    display: inline-block;
+    background: rgba(253, 203, 110, 0.15);
+    color: var(--amber);
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 0.15rem 0.45rem;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-left: 0.5rem;
+}
+
 .badge-human {
     display: inline-block;
     background: rgba(0, 206, 201, 0.12);
@@ -706,6 +724,33 @@ td .visits svg {
     text-transform: uppercase;
     letter-spacing: 0.5px;
     margin-left: 0.5rem;
+}
+
+.score-badge {
+    display: inline-block;
+    font-size: 0.62rem;
+    font-weight: 600;
+    padding: 0.1rem 0.35rem;
+    border-radius: 3px;
+    margin-left: 0.35rem;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-dim);
+}
+
+.visitor-flags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    margin-top: 0.3rem;
+}
+
+.flag-pill {
+    font-size: 0.62rem;
+    padding: 0.12rem 0.4rem;
+    border-radius: 3px;
+    background: rgba(253, 203, 110, 0.1);
+    color: var(--amber);
+    border: 1px solid rgba(253, 203, 110, 0.15);
 }
 
 .visitor-empty {
@@ -758,10 +803,14 @@ td .visits svg {
 
     .stats-summary {
         grid-template-columns: repeat(3, 1fr);
-        gap: 0.5rem;
+        gap: 0.4rem;
+    }
+
+    .stat-card {
+        padding: 0.65rem;
     }
 
     .stat-value {
-        font-size: 1.2rem;
+        font-size: 1.1rem;
     }
 }

@@ -26,7 +26,9 @@
     const statsUrl = $('statsUrl');
     const statTotal = $('statTotal');
     const statHumans = $('statHumans');
+    const statSuspicious = $('statSuspicious');
     const statBots = $('statBots');
+    const statUniqueIps = $('statUniqueIps');
     const countryList = $('countryList');
     const visitorLog = $('visitorLog');
 
@@ -225,7 +227,9 @@
         statsUrl.textContent = 'Loading…';
         statTotal.textContent = '…';
         statHumans.textContent = '…';
+        statSuspicious.textContent = '…';
         statBots.textContent = '…';
+        statUniqueIps.textContent = '…';
         countryList.innerHTML = '<p class="country-empty">Loading…</p>';
         visitorLog.innerHTML = '<p class="visitor-empty">Loading…</p>';
 
@@ -242,7 +246,9 @@
             statsUrl.textContent = data.url;
             statTotal.textContent = data.total;
             statHumans.textContent = data.summary.humans;
+            statSuspicious.textContent = data.summary.suspicious;
             statBots.textContent = data.summary.bots;
+            statUniqueIps.textContent = data.summary.unique_ips;
 
             const countries = data.summary.countries;
             const countryEntries = Object.entries(countries);
@@ -275,17 +281,29 @@
                         hour: '2-digit', minute: '2-digit'
                     });
                     const location = [v.city, v.country].filter(Boolean).join(', ') || 'Unknown';
-                    const badge = v.is_bot
-                        ? '<span class="badge-bot">BOT</span>'
-                        : '<span class="badge-human">Human</span>';
+                    const vType = v.type || (v.is_bot ? 'bot' : 'human');
+                    const score = v.suspicion_score ?? 0;
+
+                    let badge;
+                    if (vType === 'bot') badge = '<span class="badge-bot">BOT</span>';
+                    else if (vType === 'suspicious') badge = '<span class="badge-suspicious">SUSPICIOUS</span>';
+                    else badge = '<span class="badge-human">Human</span>';
+
+                    const scoreBadge = score > 0 ? `<span class="score-badge">Score: ${score}</span>` : '';
+
+                    const flagPills = (v.flags && v.flags.length > 0)
+                        ? `<div class="visitor-flags">${v.flags.map(f => `<span class="flag-pill">${escapeHtml(f)}</span>`).join('')}</div>`
+                        : '';
+
                     return `
                     <div class="visitor-entry">
                         <div class="visitor-top">
-                            <span><span class="visitor-ip">${escapeHtml(v.ip)}</span>${badge}</span>
+                            <span><span class="visitor-ip">${escapeHtml(v.ip)}</span>${badge}${scoreBadge}</span>
                             <span class="visitor-time">${time}</span>
                         </div>
                         <div class="visitor-location">${countryFlag(v.country_code)} ${escapeHtml(location)}${v.isp ? ' · ' + escapeHtml(v.isp) : ''}</div>
                         <div class="visitor-ua">${escapeHtml(v.ua)}</div>
+                        ${flagPills}
                     </div>`;
                 }).join('');
             }
