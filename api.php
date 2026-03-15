@@ -357,19 +357,45 @@ switch ($action) {
         break;
 
     // ──────────────────────────────
-    // SAFETY STATUS — last cron scan results
+    // SAFETY STATUS — auto-triggers scan if stale (>3 min)
     // ──────────────────────────────
     case 'safety_status':
         $statusFile = __DIR__ . '/data/safety_status.json';
+        $lockFile   = __DIR__ . '/data/safety_scan.lock';
+        $scanInterval = 180; // 3 minutes
+
+        // Check if a new scan is needed
+        $needsScan = false;
         if (!file_exists($statusFile)) {
+            $needsScan = true;
+        } else {
+            $status = json_decode(file_get_contents($statusFile), true) ?? [];
+            $lastCheck = strtotime($status['checked_at'] ?? '');
+            if (!$lastCheck || (time() - $lastCheck) > $scanInterval) {
+                $needsScan = true;
+            }
+        }
+
+        // Auto-trigger scan (lock-protected)
+        if ($needsScan && !empty($CONFIG['safe_browsing_api_key'])) {
+            if (!file_exists($lockFile) || (time() - filemtime($lockFile)) > 30) {
+                @touch($lockFile);
+                require_once __DIR__ . '/cron_safebrowsing.php';
+                runSafeBrowsingScan();
+                @unlink($lockFile);
+            }
+        }
+
+        // Return current status
+        if (file_exists($statusFile)) {
+            $status = json_decode(file_get_contents($statusFile), true) ?? [];
+            respond(['success' => true, 'status' => $status]);
+        } else {
             respond([
                 'success' => true,
                 'status'  => null,
-                'message' => 'No safety scan has run yet. Set up the cron job.',
+                'message' => 'No API key configured. Set safe_browsing_api_key in config.php.',
             ]);
-        } else {
-            $status = json_decode(file_get_contents($statusFile), true) ?? [];
-            respond(['success' => true, 'status' => $status]);
         }
         break;
 
