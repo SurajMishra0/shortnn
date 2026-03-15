@@ -1,27 +1,30 @@
-(() => {
+/* ShortNN — Frontend Logic */
+(function () {
     'use strict';
 
     const $ = id => document.getElementById(id);
+
+    // ── DOM refs ──
+    const settingsToggle = $('settingsToggle');
+    const settingsPanel = $('settingsPanel');
+    const basePathInput = $('basePath');
+    const saveSettings = $('saveSettings');
     const longUrlInput = $('longUrl');
-    const customSlugInput = $('customSlug');
-    const honeypotInput = $('honeypot');
+    const slugInput = $('customSlug');
     const shortenBtn = $('shortenBtn');
     const resultBox = $('result');
     const resultLink = $('resultLink');
     const copyBtn = $('copyBtn');
     const errorBox = $('error');
     const urlTableBody = $('urlTableBody');
-    const totalCount = $('totalCount');
     const emptyState = $('emptyState');
-    const settingsToggle = $('settingsToggle');
-    const settingsPanel = $('settingsPanel');
-    const basePathInput = $('basePath');
-    const saveSettingsBtn = $('saveSettings');
+    const totalCount = $('totalCount');
     const toast = $('toast');
 
-    const modalOverlay = $('modalOverlay');
-    const statsModal = $('statsModal');
-    const closeModal = $('closeModal');
+    // Stats panel refs
+    const mainContent = $('mainContent');
+    const statsPanel = $('statsPanel');
+    const closeStats = $('closeStats');
     const statsTitle = $('statsTitle');
     const statsUrl = $('statsUrl');
     const statTotal = $('statTotal');
@@ -34,110 +37,42 @@
 
     const API = 'api.php';
 
-    // ────────────────────────────────
-    // Antibot: Pre-fetch token on page load (instant, invisible)
-    // ────────────────────────────────
+    // ── Auth token ──
     let authToken = { tk: 0, ts: '' };
 
     async function fetchToken() {
         try {
             const res = await fetch(`${API}?action=token`);
             const data = await res.json();
-            if (data.success) {
-                authToken = { tk: data.tk, ts: data.ts };
-            }
+            if (data.success) authToken = { tk: data.tk, ts: data.ts };
         } catch { /* silent */ }
     }
 
-    // Grab token immediately on load — by the time user types a URL, it's ready
     fetchToken();
-    // Refresh token every 5 minutes to keep it valid
     setInterval(fetchToken, 300000);
 
-    // ────────────────────────────────
-
-    function countryFlag(code) {
-        if (!code || code === 'XX') return '🌍';
-        return String.fromCodePoint(
-            ...[...code.toUpperCase()].map(c => 0x1F1E6 + c.charCodeAt(0) - 65)
-        );
-    }
-
+    // ── Settings ──
     function getBasePath() {
-        return localStorage.getItem('shortnn_basePath') || (window.location.origin + window.location.pathname.replace(/\/[^/]*$/, '/'));
+        let base = localStorage.getItem('snn_basePath') || '';
+        if (base && !base.endsWith('/')) base += '/';
+        return base;
     }
 
-    basePathInput.value = localStorage.getItem('shortnn_basePath') || '';
+    const savedBase = localStorage.getItem('snn_basePath');
+    if (savedBase) basePathInput.value = savedBase;
 
-    settingsToggle.addEventListener('click', () => settingsPanel.classList.toggle('open'));
+    settingsToggle.addEventListener('click', () => {
+        settingsPanel.classList.toggle('open');
+    });
 
-    saveSettingsBtn.addEventListener('click', () => {
-        let val = basePathInput.value.trim();
-        if (val && !val.endsWith('/')) val += '/';
-        localStorage.setItem('shortnn_basePath', val);
+    saveSettings.addEventListener('click', () => {
+        const val = basePathInput.value.trim();
+        localStorage.setItem('snn_basePath', val);
         showToast('Settings saved');
-        settingsPanel.classList.remove('open');
+        loadUrls();
     });
 
-    let toastTimer;
-    function showToast(msg) {
-        toast.textContent = msg;
-        toast.classList.add('show');
-        clearTimeout(toastTimer);
-        toastTimer = setTimeout(() => toast.classList.remove('show'), 2500);
-    }
-
-    // ── Create Short URL ──
-    shortenBtn.addEventListener('click', async () => {
-        const url = longUrlInput.value.trim();
-        if (!url) { longUrlInput.focus(); return; }
-
-        hideResult();
-        hideError();
-        shortenBtn.disabled = true;
-        shortenBtn.querySelector('span').textContent = 'Creating…';
-
-        try {
-            const body = new URLSearchParams({
-                url,
-                _tk: String(authToken.tk),
-                _ts: authToken.ts,
-                website: honeypotInput ? honeypotInput.value : '',
-            });
-            const slug = customSlugInput.value.trim();
-            if (slug) body.append('slug', slug);
-
-            const res = await fetch(`${API}?action=create`, { method: 'POST', body });
-            const data = await res.json();
-
-            if (!data.success) throw new Error(data.error || 'Something went wrong');
-
-            const shortUrl = buildShortUrl(data.code);
-            resultLink.href = shortUrl;
-            resultLink.textContent = shortUrl;
-            resultBox.style.display = 'block';
-
-            longUrlInput.value = '';
-            customSlugInput.value = '';
-
-            // Refresh token for next creation
-            fetchToken();
-            loadUrls();
-        } catch (err) {
-            showError(err.message);
-        } finally {
-            shortenBtn.disabled = false;
-            shortenBtn.querySelector('span').textContent = 'Shorten';
-        }
-    });
-
-    longUrlInput.addEventListener('keydown', e => { if (e.key === 'Enter') shortenBtn.click(); });
-    customSlugInput.addEventListener('keydown', e => { if (e.key === 'Enter') shortenBtn.click(); });
-
-    copyBtn.addEventListener('click', () => {
-        navigator.clipboard.writeText(resultLink.textContent).then(() => showToast('Copied to clipboard!')).catch(() => { });
-    });
-
+    // ── Helpers ──
     function buildShortUrl(code) {
         const base = getBasePath();
         return `${base}${encodeURIComponent(code)}`;
@@ -145,12 +80,93 @@
 
     function hideResult() { resultBox.style.display = 'none'; }
     function hideError() { errorBox.style.display = 'none'; }
-    function showError(msg) {
-        errorBox.textContent = msg;
-        errorBox.style.display = 'block';
+
+    function showToast(msg) {
+        toast.textContent = msg;
+        toast.classList.add('show');
+        setTimeout(() => toast.classList.remove('show'), 2500);
     }
 
-    // ── Load URL list ──
+    function countryFlag(code) {
+        if (!code || code === 'XX') return '🌐';
+        return String.fromCodePoint(...[...code.toUpperCase()].map(c => 0x1F1E6 - 65 + c.charCodeAt(0)));
+    }
+
+    function escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
+    // ── Create ──
+    shortenBtn.addEventListener('click', async () => {
+        hideResult();
+        hideError();
+
+        const url = longUrlInput.value.trim();
+        const slug = slugInput.value.trim();
+
+        if (!url) {
+            longUrlInput.focus();
+            return;
+        }
+
+        shortenBtn.disabled = true;
+        shortenBtn.querySelector('span').textContent = 'Shortening…';
+
+        try {
+            const body = new URLSearchParams({
+                url, slug,
+                _tk: authToken.tk,
+                _ts: authToken.ts,
+                website: $('honeypot').value,
+            });
+
+            const res = await fetch(`${API}?action=create`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body,
+            });
+
+            const data = await res.json();
+
+            if (data.success) {
+                const shortUrl = buildShortUrl(data.code);
+                resultLink.href = shortUrl;
+                resultLink.textContent = shortUrl;
+                resultBox.style.display = 'block';
+                longUrlInput.value = '';
+                slugInput.value = '';
+                loadUrls();
+            } else {
+                errorBox.textContent = data.error || 'Failed to shorten URL';
+                errorBox.style.display = 'block';
+            }
+        } catch {
+            errorBox.textContent = 'Network error. Please try again.';
+            errorBox.style.display = 'block';
+        } finally {
+            shortenBtn.disabled = false;
+            shortenBtn.querySelector('span').textContent = 'Shorten';
+        }
+    });
+
+    longUrlInput.addEventListener('keydown', e => { if (e.key === 'Enter') shortenBtn.click(); });
+
+    // ── Copy ──
+    copyBtn.addEventListener('click', async () => {
+        const text = resultLink.textContent;
+        try {
+            await navigator.clipboard.writeText(text);
+            showToast('Copied to clipboard!');
+        } catch {
+            showToast('Copy failed');
+        }
+    });
+
+    // ── Load URL List ──
+    let currentActiveCode = null;
+
     async function loadUrls() {
         try {
             const res = await fetch(`${API}?action=list`);
@@ -158,71 +174,81 @@
             if (!data.success) return;
 
             const urls = data.urls;
-            const codes = Object.keys(urls);
-            totalCount.textContent = codes.length;
+            const entries = Object.entries(urls);
+            totalCount.textContent = entries.length;
 
-            if (codes.length === 0) {
+            if (entries.length === 0) {
                 urlTableBody.innerHTML = '';
                 emptyState.style.display = 'block';
-                document.querySelector('table').style.display = 'none';
                 return;
             }
 
             emptyState.style.display = 'none';
-            document.querySelector('table').style.display = 'table';
-
-            codes.sort((a, b) => new Date(urls[b].created) - new Date(urls[a].created));
-
-            urlTableBody.innerHTML = codes.map(code => {
-                const entry = urls[code];
+            urlTableBody.innerHTML = entries.map(([code, info]) => {
                 const shortUrl = buildShortUrl(code);
-                const created = new Date(entry.created).toLocaleDateString('en-IN', {
+                const created = new Date(info.created).toLocaleDateString('en-IN', {
                     day: 'numeric', month: 'short', year: 'numeric'
                 });
-
+                const isActive = code === currentActiveCode;
                 return `
-                <tr>
+                <tr class="${isActive ? 'active-row' : ''}" data-code="${escapeHtml(code)}">
                     <td><a href="${shortUrl}" target="_blank" class="code-link">${escapeHtml(code)}</a></td>
-                    <td><span class="dest-url" title="${escapeHtml(entry.url)}">${escapeHtml(entry.url)}</span></td>
+                    <td><span class="dest-url" title="${escapeHtml(info.url)}">${escapeHtml(info.url)}</span></td>
                     <td><span class="date">${created}</span></td>
                     <td>
                         <span class="visits">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                            ${entry.visits}
+                            ${info.visits}
                         </span>
                     </td>
-                    <td>
-                        <div style="display:flex;gap:0.35rem;">
-                            <button class="btn-icon btn-stats" onclick="openStats('${escapeHtml(code)}')" title="View Stats">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-                            </button>
-                            <button class="btn-icon btn-danger" onclick="deleteUrl('${escapeHtml(code)}')" title="Delete">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m4 0V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
-                            </button>
-                        </div>
+                    <td style="text-align:right;white-space:nowrap;">
+                        <button class="btn-icon btn-stats" onclick="window._openStats('${escapeHtml(code)}')" title="View Stats">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="18" y="3" width="4" height="18"/><rect x="10" y="8" width="4" height="13"/><rect x="2" y="13" width="4" height="8"/></svg>
+                        </button>
+                        <button class="btn-icon btn-danger" onclick="window._deleteUrl('${escapeHtml(code)}')" title="Delete">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                        </button>
                     </td>
                 </tr>`;
             }).join('');
-
         } catch { /* silent */ }
     }
 
-    window.deleteUrl = async (code) => {
-        if (!confirm(`Delete short URL "${code}"?`)) return;
+    // ── Delete ──
+    window._deleteUrl = async function (code) {
+        if (!confirm(`Delete "${code}"?`)) return;
         try {
             const res = await fetch(`${API}?action=delete`, {
                 method: 'POST',
-                body: new URLSearchParams({ code })
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({ code }),
             });
             const data = await res.json();
-            if (data.success) { showToast('Deleted'); loadUrls(); }
-        } catch {
-            showToast('Failed to delete');
-        }
+            if (data.success) {
+                showToast('Deleted');
+                if (currentActiveCode === code) closeStatsPanel();
+                loadUrls();
+            }
+        } catch { /* silent */ }
     };
 
-    // ── Stats Modal ──
-    window.openStats = async (code) => {
+    // ════════════════════════════════════
+    // Stats Panel (inline, not modal)
+    // ════════════════════════════════════
+
+    function openStatsPanel(code) {
+        currentActiveCode = code;
+
+        // Show panel
+        statsPanel.classList.add('open');
+        mainContent.classList.add('has-detail');
+
+        // Highlight active row
+        document.querySelectorAll('tr.active-row').forEach(r => r.classList.remove('active-row'));
+        const row = document.querySelector(`tr[data-code="${code}"]`);
+        if (row) row.classList.add('active-row');
+
+        // Load stats
         statsTitle.textContent = `Stats — ${code}`;
         statsUrl.textContent = 'Loading…';
         statTotal.textContent = '…';
@@ -233,106 +259,100 @@
         countryList.innerHTML = '<p class="country-empty">Loading…</p>';
         visitorLog.innerHTML = '<p class="visitor-empty">Loading…</p>';
 
-        modalOverlay.classList.add('open');
-        statsModal.classList.add('open');
-        document.body.style.overflow = 'hidden';
+        fetch(`${API}?action=stats&code=${encodeURIComponent(code)}`)
+            .then(r => r.json())
+            .then(data => {
+                if (!data.success) return;
 
-        try {
-            const res = await fetch(`${API}?action=stats&code=${encodeURIComponent(code)}`);
-            const data = await res.json();
+                statsUrl.textContent = data.url;
+                statTotal.textContent = data.total;
+                statHumans.textContent = data.summary.humans;
+                statSuspicious.textContent = data.summary.suspicious;
+                statBots.textContent = data.summary.bots;
+                statUniqueIps.textContent = data.summary.unique_ips;
 
-            if (!data.success) { showToast(data.error || 'Failed'); closeStatsModal(); return; }
+                // Countries
+                const countries = data.summary.countries;
+                const countryEntries = Object.entries(countries);
+                if (countryEntries.length === 0) {
+                    countryList.innerHTML = '<p class="country-empty">No visits yet</p>';
+                } else {
+                    const maxCount = Math.max(...countryEntries.map(([, c]) => c));
+                    countryList.innerHTML = countryEntries.map(([name, count]) => {
+                        const pct = (count / maxCount * 100).toFixed(0);
+                        const cc = data.visits.find(v => v.country === name)?.country_code || 'XX';
+                        return `
+                        <div class="country-row">
+                            <span class="country-flag">${countryFlag(cc)}</span>
+                            <span class="country-name">${escapeHtml(name)}</span>
+                            <div class="country-bar-wrap"><div class="country-bar" style="width:${pct}%"></div></div>
+                            <span class="country-count">${count}</span>
+                        </div>`;
+                    }).join('');
+                }
 
-            statsUrl.textContent = data.url;
-            statTotal.textContent = data.total;
-            statHumans.textContent = data.summary.humans;
-            statSuspicious.textContent = data.summary.suspicious;
-            statBots.textContent = data.summary.bots;
-            statUniqueIps.textContent = data.summary.unique_ips;
+                // Visitors
+                if (!data.visits || data.visits.length === 0) {
+                    visitorLog.innerHTML = '<p class="visitor-empty">No visitors recorded yet</p>';
+                } else {
+                    visitorLog.innerHTML = data.visits.map(v => {
+                        const time = new Date(v.timestamp).toLocaleString('en-IN', {
+                            day: 'numeric', month: 'short', year: 'numeric',
+                            hour: '2-digit', minute: '2-digit'
+                        });
+                        const location = [v.city, v.country].filter(Boolean).join(', ') || 'Unknown';
+                        const vType = v.type || (v.is_bot ? 'bot' : 'human');
+                        const score = v.suspicion_score ?? 0;
 
-            const countries = data.summary.countries;
-            const countryEntries = Object.entries(countries);
-            if (countryEntries.length === 0) {
-                countryList.innerHTML = '<p class="country-empty">No visitor data yet</p>';
-            } else {
-                const maxCount = Math.max(...countryEntries.map(([, c]) => c));
-                countryList.innerHTML = countryEntries.map(([name, count]) => {
-                    const pct = (count / maxCount) * 100;
-                    const visit = data.visits.find(v => v.country === name);
-                    const cc = visit ? visit.country_code : 'XX';
-                    return `
-                    <div class="country-row">
-                        <span class="country-flag">${countryFlag(cc)}</span>
-                        <span class="country-name">${escapeHtml(name)}</span>
-                        <div class="country-bar-wrap">
-                            <div class="country-bar" style="width:${pct}%"></div>
-                        </div>
-                        <span class="country-count">${count}</span>
-                    </div>`;
-                }).join('');
-            }
+                        let badge;
+                        if (vType === 'bot') badge = '<span class="badge-bot">BOT</span>';
+                        else if (vType === 'suspicious') badge = '<span class="badge-suspicious">SUSPICIOUS</span>';
+                        else badge = '<span class="badge-human">Human</span>';
 
-            if (data.visits.length === 0) {
-                visitorLog.innerHTML = '<p class="visitor-empty">No visitors yet</p>';
-            } else {
-                visitorLog.innerHTML = data.visits.map(v => {
-                    const time = new Date(v.timestamp).toLocaleString('en-IN', {
-                        day: 'numeric', month: 'short', year: 'numeric',
-                        hour: '2-digit', minute: '2-digit'
-                    });
-                    const location = [v.city, v.country].filter(Boolean).join(', ') || 'Unknown';
-                    const vType = v.type || (v.is_bot ? 'bot' : 'human');
-                    const score = v.suspicion_score ?? 0;
+                        const scoreBadge = score > 0 ? `<span class="score-badge">Score: ${score}</span>` : '';
 
-                    let badge;
-                    if (vType === 'bot') badge = '<span class="badge-bot">BOT</span>';
-                    else if (vType === 'suspicious') badge = '<span class="badge-suspicious">SUSPICIOUS</span>';
-                    else badge = '<span class="badge-human">Human</span>';
+                        const flagPills = (v.flags && v.flags.length > 0)
+                            ? `<div class="visitor-flags">${v.flags.map(f => `<span class="flag-pill">${escapeHtml(f)}</span>`).join('')}</div>`
+                            : '';
 
-                    const scoreBadge = score > 0 ? `<span class="score-badge">Score: ${score}</span>` : '';
-
-                    const flagPills = (v.flags && v.flags.length > 0)
-                        ? `<div class="visitor-flags">${v.flags.map(f => `<span class="flag-pill">${escapeHtml(f)}</span>`).join('')}</div>`
-                        : '';
-
-                    return `
-                    <div class="visitor-entry">
-                        <div class="visitor-top">
-                            <span><span class="visitor-ip">${escapeHtml(v.ip)}</span>${badge}${scoreBadge}</span>
-                            <span class="visitor-time">${time}</span>
-                        </div>
-                        <div class="visitor-location">${countryFlag(v.country_code)} ${escapeHtml(location)}${v.isp ? ' · ' + escapeHtml(v.isp) : ''}</div>
-                        <div class="visitor-ua">${escapeHtml(v.ua)}</div>
-                        ${flagPills}
-                    </div>`;
-                }).join('');
-            }
-        } catch { showToast('Failed to load stats'); closeStatsModal(); }
-    };
-
-    function closeStatsModal() {
-        modalOverlay.classList.remove('open');
-        statsModal.classList.remove('open');
-        document.body.style.overflow = '';
+                        return `
+                        <div class="visitor-entry">
+                            <div class="visitor-top">
+                                <span><span class="visitor-ip">${escapeHtml(v.ip)}</span>${badge}${scoreBadge}</span>
+                                <span class="visitor-time">${time}</span>
+                            </div>
+                            <div class="visitor-location">${countryFlag(v.country_code)} ${escapeHtml(location)}${v.isp ? ' · ' + escapeHtml(v.isp) : ''}</div>
+                            <div class="visitor-ua">${escapeHtml(v.ua || '(empty)')}</div>
+                            ${flagPills}
+                        </div>`;
+                    }).join('');
+                }
+            })
+            .catch(() => {
+                statsUrl.textContent = 'Failed to load stats';
+            });
     }
 
-    closeModal.addEventListener('click', closeStatsModal);
-    modalOverlay.addEventListener('click', closeStatsModal);
+    function closeStatsPanel() {
+        currentActiveCode = null;
+        statsPanel.classList.remove('open');
+        mainContent.classList.remove('has-detail');
+        document.querySelectorAll('tr.active-row').forEach(r => r.classList.remove('active-row'));
+    }
+
+    window._openStats = openStatsPanel;
+    closeStats.addEventListener('click', closeStatsPanel);
+
     document.addEventListener('keydown', e => {
-        if (e.key === 'Escape' && statsModal.classList.contains('open')) closeStatsModal();
+        if (e.key === 'Escape' && statsPanel.classList.contains('open')) closeStatsPanel();
     });
 
-    function escapeHtml(str) {
-        const div = document.createElement('div');
-        div.textContent = str;
-        return div.innerHTML;
-    }
-
+    // ── Init ──
     loadUrls();
     setInterval(loadUrls, 30000);
 
     // ────────────────────────────────
-    // Safety Status Banner (from cron scan)
+    // Safety Status Banner
     // ────────────────────────────────
     const safetyBanner = $('safetyBanner');
 
@@ -344,7 +364,6 @@
 
             const s = data.status;
             if (!s) {
-                // No scan has run yet — show nothing or a subtle hint
                 safetyBanner.style.display = 'none';
                 return;
             }
@@ -355,19 +374,15 @@
             const timeTag = checkedTime ? `<span class="sb-time">Last scan: ${checkedTime}</span>` : '';
 
             if (s.error) {
-                // API error — show warning but don't block
                 safetyBanner.className = 'safety-banner warning';
-                safetyBanner.innerHTML = `⚠️ <strong>Safe Browsing scan error:</strong> ${escapeHtml(s.error)} — URLs still working normally. ${timeTag}`;
+                safetyBanner.innerHTML = `⚠️ <strong>Safe Browsing scan error:</strong> ${escapeHtml(s.error)} — URLs still working. ${timeTag}`;
                 safetyBanner.style.display = 'block';
             } else if (!s.all_safe && s.flagged && s.flagged.length > 0) {
-                // Flagged URLs!
                 const selfFlagged = s.flagged.filter(f => f.is_self);
                 const urlFlagged = s.flagged.filter(f => !f.is_self);
 
                 let msg = '🚨 <strong>Safe Browsing Alert:</strong> ';
-                if (selfFlagged.length > 0) {
-                    msg += `<strong>Your shortener domain</strong> is flagged (${selfFlagged[0].threat})! `;
-                }
+                if (selfFlagged.length > 0) msg += `<strong>Your shortener domain</strong> is flagged (${selfFlagged[0].threat})! `;
                 if (urlFlagged.length > 0) {
                     msg += `${urlFlagged.length} destination URL${urlFlagged.length > 1 ? 's' : ''} flagged: `;
                     msg += urlFlagged.map(f => `<strong>${escapeHtml(f.code)}</strong> (${f.threat})`).join(', ');
@@ -379,13 +394,12 @@
                 safetyBanner.innerHTML = msg;
                 safetyBanner.style.display = 'block';
             } else {
-                // All safe
                 safetyBanner.className = 'safety-banner safe';
                 safetyBanner.innerHTML = `🛡️ All ${s.total_checked} URLs passed Safe Browsing check. ${timeTag}`;
                 safetyBanner.style.display = 'block';
             }
 
-            // Also update settings panel
+            // Settings panel status
             const sbStatus = $('safeBrowsingStatus');
             if (sbStatus) {
                 const res2 = await fetch(`${API}?action=config`);
@@ -400,7 +414,7 @@
     }
 
     loadSafetyStatus();
-    setInterval(loadSafetyStatus, 180000); // Refresh every 3 minutes
+    setInterval(loadSafetyStatus, 180000);
 
     // ────────────────────────────────
     // Manual URL Safety Checker
@@ -424,17 +438,21 @@
 
                 if (!data.success) {
                     checkUrlResult.style.color = 'var(--red)';
+                    checkUrlResult.style.background = 'rgba(255,107,107,0.06)';
                     checkUrlResult.textContent = data.error || 'Check failed';
                 } else if (data.safe) {
                     checkUrlResult.style.color = 'var(--green)';
+                    checkUrlResult.style.background = 'rgba(0,206,201,0.06)';
                     checkUrlResult.innerHTML = `✅ <strong>${escapeHtml(data.url)}</strong> — appears safe`;
                 } else {
                     checkUrlResult.style.color = 'var(--red)';
+                    checkUrlResult.style.background = 'rgba(255,107,107,0.06)';
                     checkUrlResult.innerHTML = `🚨 <strong>${escapeHtml(data.url)}</strong> — flagged as <strong>${escapeHtml(data.threat)}</strong>`;
                 }
                 checkUrlResult.style.display = 'block';
             } catch {
                 checkUrlResult.style.color = 'var(--amber)';
+                checkUrlResult.style.background = 'rgba(253,203,110,0.06)';
                 checkUrlResult.textContent = '⚠️ Could not reach the Safe Browsing API';
                 checkUrlResult.style.display = 'block';
             } finally {
