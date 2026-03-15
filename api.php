@@ -280,6 +280,37 @@ switch ($action) {
         break;
 
     // ──────────────────────────────
+    // EDIT
+    // ──────────────────────────────
+    case 'edit':
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST')
+            respond(['success' => false, 'error' => 'POST required'], 405);
+
+        $code = trim($_POST['code'] ?? '');
+        $url  = trim($_POST['url'] ?? '');
+
+        if (!$code) respond(['success' => false, 'error' => 'Code is required'], 400);
+        if (!$url)  respond(['success' => false, 'error' => 'URL is required'], 400);
+        
+        if (!preg_match('#^https?://#i', $url)) $url = 'https://' . $url;
+        if (!isValidUrl($url)) respond(['success' => false, 'error' => 'Invalid URL'], 400);
+
+        // Safe Browsing Check for the new URL
+        $threat = checkSafeBrowsing($url);
+        if ($threat !== null) {
+            respond(['success' => false, 'error' => "This URL has been flagged as unsafe ({$threat}). Cannot use."], 400);
+        }
+
+        $data = readData();
+        if (!isset($data[$code]))
+            respond(['success' => false, 'error' => 'Short URL not found'], 404);
+
+        $data[$code]['url'] = $url;
+        writeData($data);
+        respond(['success' => true]);
+        break;
+
+    // ──────────────────────────────
     // DELETE
     // ──────────────────────────────
     case 'delete':

@@ -232,6 +232,9 @@
                             <button class="btn-icon btn-stats" onclick="openStats('${escapeHtml(code)}')" title="View Stats">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
                             </button>
+                            <button class="btn-icon" onclick="editUrl('${escapeHtml(code)}', '${escapeHtml(entry.url).replace(/'/g, "\\'")}')" title="Edit Destination">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                            </button>
                             <button class="btn-icon btn-danger" onclick="deleteUrl('${escapeHtml(code)}')" title="Delete">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m4 0V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
                             </button>
@@ -242,6 +245,23 @@
 
         } catch { /* silent */ }
     }
+
+    window.editUrl = async (code, currentUrl) => {
+        const newUrl = prompt(`Edit destination URL for "${code}":`, currentUrl);
+        if (newUrl === null || newUrl.trim() === '' || newUrl.trim() === currentUrl) return;
+
+        try {
+            const res = await fetch(`${API}?action=edit`, {
+                method: 'POST',
+                body: new URLSearchParams({ code, url: newUrl.trim() })
+            });
+            const data = await res.json();
+            if (data.success) { showToast('URL updated successfully'); loadUrls(); }
+            else { showToast(data.error || 'Failed to update URL'); }
+        } catch {
+            showToast('Network error while updating URL');
+        }
+    };
 
     window.deleteUrl = async (code) => {
         if (!confirm(`Delete short URL "${code}"?`)) return;
