@@ -331,18 +331,118 @@
     loadUrls();
     setInterval(loadUrls, 30000);
 
-    // ── Check Safe Browsing config status ──
-    (async () => {
+    // ────────────────────────────────
+    // Safety Status Banner (from cron scan)
+    // ────────────────────────────────
+    const safetyBanner = $('safetyBanner');
+
+    async function loadSafetyStatus() {
         try {
-            const sbStatus = $('safeBrowsingStatus');
-            if (!sbStatus) return;
-            const res = await fetch(`${API}?action=config`);
+            const res = await fetch(`${API}?action=safety_status`);
             const data = await res.json();
-            if (data.success) {
-                sbStatus.innerHTML = data.safeBrowsingEnabled
-                    ? '<span style="color:var(--green);">🛡️ Google Safe Browsing: Active</span>'
-                    : '<span style="color:var(--text-dim);">⚠️ Safe Browsing: Not configured — set API key in <code>config.php</code></span>';
+            if (!data.success) return;
+
+            const s = data.status;
+            if (!s) {
+                // No scan has run yet — show nothing or a subtle hint
+                safetyBanner.style.display = 'none';
+                return;
+            }
+
+            const checkedTime = s.checked_at ? new Date(s.checked_at).toLocaleString('en-IN', {
+                day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
+            }) : '';
+            const timeTag = checkedTime ? `<span class="sb-time">Last scan: ${checkedTime}</span>` : '';
+
+            if (s.error) {
+                // API error — show warning but don't block
+                safetyBanner.className = 'safety-banner warning';
+                safetyBanner.innerHTML = `⚠️ <strong>Safe Browsing scan error:</strong> ${escapeHtml(s.error)} — URLs still working normally. ${timeTag}`;
+                safetyBanner.style.display = 'block';
+            } else if (!s.all_safe && s.flagged && s.flagged.length > 0) {
+                // Flagged URLs!
+                const selfFlagged = s.flagged.filter(f => f.is_self);
+                const urlFlagged = s.flagged.filter(f => !f.is_self);
+
+                let msg = '🚨 <strong>Safe Browsing Alert:</strong> ';
+                if (selfFlagged.length > 0) {
+                    msg += `<strong>Your shortener domain</strong> is flagged (${selfFlagged[0].threat})! `;
+                }
+                if (urlFlagged.length > 0) {
+                    msg += `${urlFlagged.length} destination URL${urlFlagged.length > 1 ? 's' : ''} flagged: `;
+                    msg += urlFlagged.map(f => `<strong>${escapeHtml(f.code)}</strong> (${f.threat})`).join(', ');
+                    msg += '. ';
+                }
+                msg += `URLs still working — review and remove if needed. ${timeTag}`;
+
+                safetyBanner.className = 'safety-banner danger';
+                safetyBanner.innerHTML = msg;
+                safetyBanner.style.display = 'block';
+            } else {
+                // All safe
+                safetyBanner.className = 'safety-banner safe';
+                safetyBanner.innerHTML = `🛡️ All ${s.total_checked} URLs passed Safe Browsing check. ${timeTag}`;
+                safetyBanner.style.display = 'block';
+            }
+
+            // Also update settings panel
+            const sbStatus = $('safeBrowsingStatus');
+            if (sbStatus) {
+                const res2 = await fetch(`${API}?action=config`);
+                const cfg = await res2.json();
+                if (cfg.success) {
+                    sbStatus.innerHTML = cfg.safeBrowsingEnabled
+                        ? '<span style="color:var(--green);">🛡️ Google Safe Browsing: Active</span>'
+                        : '<span style="color:var(--text-dim);">⚠️ Safe Browsing: Not configured — set API key in <code>config.php</code></span>';
+                }
             }
         } catch { /* silent */ }
-    })();
+    }
+
+    loadSafetyStatus();
+    setInterval(loadSafetyStatus, 180000); // Refresh every 3 minutes
+
+    // ────────────────────────────────
+    // Manual URL Safety Checker
+    // ────────────────────────────────
+    const checkUrlInput = $('checkUrlInput');
+    const checkUrlBtn = $('checkUrlBtn');
+    const checkUrlResult = $('checkUrlResult');
+
+    if (checkUrlBtn) {
+        checkUrlBtn.addEventListener('click', async () => {
+            const url = checkUrlInput.value.trim();
+            if (!url) { checkUrlInput.focus(); return; }
+
+            checkUrlBtn.disabled = true;
+            checkUrlBtn.textContent = 'Checking…';
+            checkUrlResult.style.display = 'none';
+
+            try {
+                const res = await fetch(`${API}?action=check_url&url=${encodeURIComponent(url)}`);
+                const data = await res.json();
+
+                if (!data.success) {
+                    checkUrlResult.style.color = 'var(--red)';
+                    checkUrlResult.textContent = data.error || 'Check failed';
+                } else if (data.safe) {
+                    checkUrlResult.style.color = 'var(--green)';
+                    checkUrlResult.innerHTML = `✅ <strong>${escapeHtml(data.url)}</strong> — appears safe`;
+                } else {
+                    checkUrlResult.style.color = 'var(--red)';
+                    checkUrlResult.innerHTML = `🚨 <strong>${escapeHtml(data.url)}</strong> — flagged as <strong>${escapeHtml(data.threat)}</strong>`;
+                }
+                checkUrlResult.style.display = 'block';
+            } catch {
+                checkUrlResult.style.color = 'var(--amber)';
+                checkUrlResult.textContent = '⚠️ Could not reach the Safe Browsing API';
+                checkUrlResult.style.display = 'block';
+            } finally {
+                checkUrlBtn.disabled = false;
+                checkUrlBtn.textContent = 'Check';
+            }
+        });
+
+        checkUrlInput.addEventListener('keydown', e => { if (e.key === 'Enter') checkUrlBtn.click(); });
+    }
 })();

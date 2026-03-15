@@ -356,6 +356,42 @@ switch ($action) {
         ]);
         break;
 
+    // ──────────────────────────────
+    // SAFETY STATUS — last cron scan results
+    // ──────────────────────────────
+    case 'safety_status':
+        $statusFile = __DIR__ . '/data/safety_status.json';
+        if (!file_exists($statusFile)) {
+            respond([
+                'success' => true,
+                'status'  => null,
+                'message' => 'No safety scan has run yet. Set up the cron job.',
+            ]);
+        } else {
+            $status = json_decode(file_get_contents($statusFile), true) ?? [];
+            respond(['success' => true, 'status' => $status]);
+        }
+        break;
+
+    // ──────────────────────────────
+    // CHECK URL — on-demand Safe Browsing check
+    // ──────────────────────────────
+    case 'check_url':
+        $urlToCheck = trim($_GET['url'] ?? '');
+        if (!$urlToCheck) respond(['success' => false, 'error' => 'URL is required'], 400);
+
+        if (!preg_match('#^https?://#i', $urlToCheck)) $urlToCheck = 'https://' . $urlToCheck;
+
+        if (!isValidUrl($urlToCheck)) respond(['success' => false, 'error' => 'Invalid URL'], 400);
+
+        $threat = checkSafeBrowsing($urlToCheck);
+        if ($threat === null) {
+            respond(['success' => true, 'safe' => true, 'url' => $urlToCheck, 'message' => 'URL appears safe']);
+        } else {
+            respond(['success' => true, 'safe' => false, 'url' => $urlToCheck, 'threat' => $threat, 'message' => "Flagged as: {$threat}"]);
+        }
+        break;
+
     default:
         respond(['success' => false, 'error' => 'Unknown action'], 400);
 }

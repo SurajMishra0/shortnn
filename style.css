@@ -46,6 +46,44 @@ body {
     padding: 2rem 1.25rem 4rem;
 }
 
+/* ── Safety Banner ── */
+.safety-banner {
+    border-radius: var(--radius-sm);
+    padding: 0.85rem 1.1rem;
+    font-size: 0.82rem;
+    margin-bottom: 1rem;
+    line-height: 1.5;
+    animation: slideIn 0.3s ease;
+}
+
+.safety-banner.danger {
+    background: rgba(255, 107, 107, 0.08);
+    border: 1px solid rgba(255, 107, 107, 0.25);
+    color: var(--red);
+}
+
+.safety-banner.warning {
+    background: rgba(253, 203, 110, 0.08);
+    border: 1px solid rgba(253, 203, 110, 0.25);
+    color: var(--amber);
+}
+
+.safety-banner.safe {
+    background: rgba(0, 206, 201, 0.06);
+    border: 1px solid rgba(0, 206, 201, 0.15);
+    color: var(--green);
+}
+
+.safety-banner strong {
+    font-weight: 700;
+}
+
+.safety-banner .sb-time {
+    opacity: 0.7;
+    font-size: 0.75rem;
+    margin-left: 0.5rem;
+}
+
 /* ── Header ── */
 .header {
     display: flex;

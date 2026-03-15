@@ -9,4 +9,8 @@ return [
     // Google Safe Browsing API key (free, 10k lookups/day)
     // Leave empty to disable URL safety checks
     'safe_browsing_api_key' => '',
+
+    // Your shortener's public URL (for self-checking via cron)
+    // Example: 'https://yourdomain.com/' or 'https://yourdomain.com/s/'
+    'shortener_url' => '',
 ];

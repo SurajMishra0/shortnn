@@ -48,6 +48,24 @@
             </div>
         </div>
 
+        <!-- Safety Alert Banner (populated by JS if flagged URLs or errors) -->
+        <div class="safety-banner" id="safetyBanner" style="display:none;"></div>
+
+        <!-- URL Safety Checker -->
+        <section class="check-section">
+            <div class="card glass" style="padding:1rem 1.25rem;">
+                <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;">
+                    <span style="font-size:1.1rem;">🛡️</span>
+                    <h3 style="margin:0;font-size:0.95rem;font-weight:600;">Check URL Safety</h3>
+                </div>
+                <div class="input-row">
+                    <input type="url" id="checkUrlInput" placeholder="https://example.com — check if a URL is safe">
+                    <button class="btn btn-sm" id="checkUrlBtn">Check</button>
+                </div>
+                <div id="checkUrlResult" style="display:none;margin-top:0.5rem;font-size:0.82rem;"></div>
+            </div>
+        </section>
+
         <!-- Create Short URL -->
         <section class="create-section">
             <div class="card glass">
