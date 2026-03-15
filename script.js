@@ -138,7 +138,7 @@
 
     function buildShortUrl(code) {
         const base = getBasePath();
-        return `${base}r.php?c=${encodeURIComponent(code)}`;
+        return `${base}${encodeURIComponent(code)}`;
     }
 
     function hideResult() { resultBox.style.display = 'none'; }
@@ -312,4 +312,19 @@
 
     loadUrls();
     setInterval(loadUrls, 30000);
+
+    // ── Check Safe Browsing config status ──
+    (async () => {
+        try {
+            const sbStatus = $('safeBrowsingStatus');
+            if (!sbStatus) return;
+            const res = await fetch(`${API}?action=config`);
+            const data = await res.json();
+            if (data.success) {
+                sbStatus.innerHTML = data.safeBrowsingEnabled
+                    ? '<span style="color:var(--green);">🛡️ Google Safe Browsing: Active</span>'
+                    : '<span style="color:var(--text-dim);">⚠️ Safe Browsing: Not configured — set API key in <code>config.php</code></span>';
+            }
+        } catch { /* silent */ }
+    })();
 })();

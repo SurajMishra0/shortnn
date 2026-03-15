@@ -1,24 +1,29 @@
 <?php
 /**
  * ShortNN — API Backend
- * Handles create, list, delete, stats operations for short URLs.
+ * Handles create, list, delete, stats, config operations.
  * Data is stored in data/urls.json with file locking.
  *
- * Antibot protections on CREATE (all invisible, zero delay):
+ * Antibot protections on CREATE (invisible, zero delay):
  * 1. Rate limiting (per-IP, max 20 creates/hour)
  * 2. Honeypot field (hidden field must be empty)
- * 3. JS token (proves browser JS executed — bots posting raw HTTP fail)
- * 4. Bot UA blocking (reject known bot user agents)
+ * 3. JS token (proves browser JS executed)
+ * 4. Bot UA blocking
+ * 5. Google Safe Browsing check (if API key configured)
  */
 
 header('Content-Type: application/json');
 
 define('DATA_FILE', __DIR__ . '/data/urls.json');
 define('RATE_DIR', __DIR__ . '/data/ratelimit');
+define('CONFIG_FILE', __DIR__ . '/config.php');
 define('RATE_LIMIT', 20);
 define('TOKEN_SECRET', 'snn_' . md5(__DIR__));
 
-// ── Known bot UAs (block on create) ──
+// ── Load config ──
+$CONFIG = file_exists(CONFIG_FILE) ? (require CONFIG_FILE) : [];
+
+// ── Known bot UAs ──
 $BLOCKED_UAS = [
     'bot', 'crawl', 'spider', 'slurp', 'semrush', 'ahrefsbot',
     'mj12bot', 'dotbot', 'petalbot', 'python-requests', 'python-urllib',
@@ -27,7 +32,7 @@ $BLOCKED_UAS = [
     'mechanize', 'libwww-perl', 'lwp-', 'httpie',
 ];
 
-// ── Ensure data dir exists ──
+// ── Ensure data dir ──
 if (!file_exists(DATA_FILE)) {
     @mkdir(dirname(DATA_FILE), 0755, true);
     file_put_contents(DATA_FILE, '{}');
@@ -43,8 +48,7 @@ function readData(): array {
     $content = stream_get_contents($fp);
     flock($fp, LOCK_UN);
     fclose($fp);
-    $data = json_decode($content, true);
-    return is_array($data) ? $data : [];
+    return is_array($d = json_decode($content, true)) ? $d : [];
 }
 
 function writeData(array $data): void {
@@ -60,9 +64,7 @@ function writeData(array $data): void {
 function generateCode(int $length = 6): string {
     $chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     $code = '';
-    for ($i = 0; $i < $length; $i++) {
-        $code .= $chars[random_int(0, strlen($chars) - 1)];
-    }
+    for ($i = 0; $i < $length; $i++) $code .= $chars[random_int(0, strlen($chars) - 1)];
     return $code;
 }
 
@@ -100,20 +102,17 @@ function checkRateLimit(string $ip): bool {
 }
 
 // ────────────────────────────────────────
-// Antibot: Token (instant, proves JS ran)
+// Antibot: Token
 // ────────────────────────────────────────
 
 function generateToken(): array {
     $ts = time();
-    $sig = hash_hmac('sha256', (string)$ts, TOKEN_SECRET);
-    return ['t' => $ts, 's' => $sig];
+    return ['t' => $ts, 's' => hash_hmac('sha256', (string)$ts, TOKEN_SECRET)];
 }
 
 function verifyToken(int $ts, string $sig): bool {
-    // Token must be < 10 minutes old
     if (abs(time() - $ts) > 600) return false;
-    $expected = hash_hmac('sha256', (string)$ts, TOKEN_SECRET);
-    return hash_equals($expected, $sig);
+    return hash_equals(hash_hmac('sha256', (string)$ts, TOKEN_SECRET), $sig);
 }
 
 // ────────────────────────────────────────
@@ -123,19 +122,69 @@ function verifyToken(int $ts, string $sig): bool {
 function isBlockedUA(string $ua): bool {
     global $BLOCKED_UAS;
     $uaLower = strtolower($ua);
-    foreach ($BLOCKED_UAS as $pattern) {
-        if (str_contains($uaLower, $pattern)) return true;
+    foreach ($BLOCKED_UAS as $p) {
+        if (str_contains($uaLower, $p)) return true;
     }
     return false;
 }
 
-// ── Rate limit file cleanup (~1% of requests) ──
-if (random_int(1, 100) === 1) {
-    if (is_dir(RATE_DIR)) {
-        $cutoff = time() - 7200;
-        foreach (glob(RATE_DIR . '/*.json') as $f) {
-            if (filemtime($f) < $cutoff) @unlink($f);
-        }
+// ────────────────────────────────────────
+// Safe Browsing: Check URL against Google
+// ────────────────────────────────────────
+
+function checkSafeBrowsing(string $url): ?string {
+    global $CONFIG;
+    $apiKey = $CONFIG['safe_browsing_api_key'] ?? '';
+    if (!$apiKey) return null; // Not configured — skip check
+
+    $endpoint = "https://safebrowsing.googleapis.com/v4/threatMatches:find?key=" . urlencode($apiKey);
+
+    $payload = json_encode([
+        'client' => [
+            'clientId'      => 'shortnn',
+            'clientVersion' => '1.0',
+        ],
+        'threatInfo' => [
+            'threatTypes'      => ['MALWARE', 'SOCIAL_ENGINEERING', 'UNWANTED_SOFTWARE', 'POTENTIALLY_HARMFUL_APPLICATION'],
+            'platformTypes'    => ['ANY_PLATFORM'],
+            'threatEntryTypes' => ['URL'],
+            'threatEntries'    => [['url' => $url]],
+        ],
+    ]);
+
+    $ctx = stream_context_create([
+        'http' => [
+            'method'  => 'POST',
+            'header'  => "Content-Type: application/json\r\n",
+            'content' => $payload,
+            'timeout' => 3,
+        ],
+    ]);
+
+    $response = @file_get_contents($endpoint, false, $ctx);
+    if ($response === false) return null; // API unreachable — don't block
+
+    $result = json_decode($response, true);
+
+    if (!empty($result['matches'])) {
+        $threat = $result['matches'][0]['threatType'] ?? 'UNKNOWN';
+        $labels = [
+            'MALWARE'                          => 'malware',
+            'SOCIAL_ENGINEERING'               => 'phishing/social engineering',
+            'UNWANTED_SOFTWARE'                => 'unwanted software',
+            'POTENTIALLY_HARMFUL_APPLICATION'  => 'potentially harmful',
+        ];
+        return $labels[$threat] ?? $threat;
+    }
+
+    return null; // Safe
+}
+
+// ── Rate limit cleanup (~1% of requests) ──
+if (random_int(1, 100) === 1 && is_dir(RATE_DIR)) {
+    $cutoff = time() - 7200;
+    foreach (glob(RATE_DIR . '/*.json') as $f) {
+        if (filemtime($f) < $cutoff) @unlink($f);
     }
 }
 
@@ -145,7 +194,7 @@ $action = $_GET['action'] ?? '';
 switch ($action) {
 
     // ──────────────────────────────
-    // TOKEN — client grabs one on page load (instant)
+    // TOKEN
     // ──────────────────────────────
     case 'token':
         $tok = generateToken();
@@ -153,7 +202,17 @@ switch ($action) {
         break;
 
     // ──────────────────────────────
-    // CREATE (protected, but invisible & fast)
+    // CONFIG (read-only, public-safe values)
+    // ──────────────────────────────
+    case 'config':
+        respond([
+            'success' => true,
+            'safeBrowsingEnabled' => !empty($CONFIG['safe_browsing_api_key']),
+        ]);
+        break;
+
+    // ──────────────────────────────
+    // CREATE
     // ──────────────────────────────
     case 'create':
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -163,64 +222,52 @@ switch ($action) {
         $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
         $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
 
-        // ── Check 1: Block bot UAs ──
-        if (!$ua || isBlockedUA($ua)) {
+        if (!$ua || isBlockedUA($ua))
             respond(['success' => false, 'error' => 'Request blocked'], 403);
-        }
 
-        // ── Check 2: Honeypot ──
-        if (trim($_POST['website'] ?? '') !== '') {
+        if (trim($_POST['website'] ?? '') !== '')
             respond(['success' => true, 'code' => generateCode(), 'url' => 'https://example.com']);
-        }
 
-        // ── Check 3: Rate limiting ──
-        if (!checkRateLimit($ip)) {
+        if (!checkRateLimit($ip))
             respond(['success' => false, 'error' => 'Rate limit exceeded. Try again later.'], 429);
-        }
 
-        // ── Check 4: JS token ──
         $tk = (int)($_POST['_tk'] ?? 0);
         $ts = trim($_POST['_ts'] ?? '');
-        if (!$tk || !$ts || !verifyToken($tk, $ts)) {
+        if (!$tk || !$ts || !verifyToken($tk, $ts))
             respond(['success' => false, 'error' => 'Invalid request. Please refresh the page.'], 403);
-        }
 
-        // ── All checks passed — process URL creation ──
+        // ── Process URL ──
         $url = trim($_POST['url'] ?? '');
         $slug = trim($_POST['slug'] ?? '');
 
-        if (!$url) {
-            respond(['success' => false, 'error' => 'URL is required'], 400);
-        }
+        if (!$url) respond(['success' => false, 'error' => 'URL is required'], 400);
 
-        if (!preg_match('#^https?://#i', $url)) {
-            $url = 'https://' . $url;
-        }
+        if (!preg_match('#^https?://#i', $url)) $url = 'https://' . $url;
 
-        if (!isValidUrl($url)) {
-            respond(['success' => false, 'error' => 'Invalid URL'], 400);
+        if (!isValidUrl($url)) respond(['success' => false, 'error' => 'Invalid URL'], 400);
+
+        // ── Safe Browsing check ──
+        $threat = checkSafeBrowsing($url);
+        if ($threat !== null) {
+            respond([
+                'success' => false,
+                'error'   => "This URL has been flagged as unsafe ({$threat}) by Google Safe Browsing. Cannot shorten.",
+            ], 400);
         }
 
         $data = readData();
 
         if ($slug) {
-            if (!isValidSlug($slug)) {
+            if (!isValidSlug($slug))
                 respond(['success' => false, 'error' => 'Slug can only contain letters, numbers, hyphens, and underscores (max 64 chars)'], 400);
-            }
-            if (isset($data[$slug])) {
+            if (isset($data[$slug]))
                 respond(['success' => false, 'error' => "Slug \"$slug\" is already taken"], 409);
-            }
             $code = $slug;
         } else {
             do { $code = generateCode(); } while (isset($data[$code]));
         }
 
-        $data[$code] = [
-            'url'     => $url,
-            'created' => date('c'),
-            'visits'  => 0,
-        ];
-
+        $data[$code] = ['url' => $url, 'created' => date('c'), 'visits' => 0];
         writeData($data);
         respond(['success' => true, 'code' => $code, 'url' => $url]);
         break;
@@ -229,27 +276,22 @@ switch ($action) {
     // LIST
     // ──────────────────────────────
     case 'list':
-        $data = readData();
-        respond(['success' => true, 'urls' => $data, 'count' => count($data)]);
+        respond(['success' => true, 'urls' => readData(), 'count' => count(readData())]);
         break;
 
     // ──────────────────────────────
     // DELETE
     // ──────────────────────────────
     case 'delete':
-        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST')
             respond(['success' => false, 'error' => 'POST required'], 405);
-        }
 
         $code = trim($_POST['code'] ?? '');
-        if (!$code) {
-            respond(['success' => false, 'error' => 'Code is required'], 400);
-        }
+        if (!$code) respond(['success' => false, 'error' => 'Code is required'], 400);
 
         $data = readData();
-        if (!isset($data[$code])) {
+        if (!isset($data[$code]))
             respond(['success' => false, 'error' => 'Short URL not found'], 404);
-        }
 
         unset($data[$code]);
         writeData($data);
@@ -261,19 +303,15 @@ switch ($action) {
     // ──────────────────────────────
     case 'stats':
         $code = trim($_GET['code'] ?? '');
-        if (!$code) {
-            respond(['success' => false, 'error' => 'Code is required'], 400);
-        }
+        if (!$code) respond(['success' => false, 'error' => 'Code is required'], 400);
 
         $data = readData();
-        if (!isset($data[$code])) {
+        if (!isset($data[$code]))
             respond(['success' => false, 'error' => 'Short URL not found'], 404);
-        }
 
         $visitsDir = __DIR__ . '/data/visits';
         $visitFile = $visitsDir . "/{$code}.json";
         $visits = [];
-
         if (file_exists($visitFile)) {
             $vfp = fopen($visitFile, 'r');
             flock($vfp, LOCK_SH);
@@ -283,19 +321,16 @@ switch ($action) {
         }
 
         $countries = [];
-        $botCount = 0;
-        $humanCount = 0;
+        $botCount = $humanCount = 0;
         foreach ($visits as $v) {
             $c = $v['country'] ?? 'Unknown';
             $countries[$c] = ($countries[$c] ?? 0) + 1;
-            if ($v['is_bot'] ?? false) $botCount++;
-            else $humanCount++;
+            if ($v['is_bot'] ?? false) $botCount++; else $humanCount++;
         }
         arsort($countries);
 
         respond([
-            'success' => true,
-            'code'    => $code,
+            'success' => true, 'code' => $code,
             'url'     => $data[$code]['url'],
             'total'   => $data[$code]['visits'],
             'summary' => ['countries' => $countries, 'bots' => $botCount, 'humans' => $humanCount],

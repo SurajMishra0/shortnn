@@ -1,0 +1,9 @@
+RewriteEngine On
+
+# Don't rewrite existing files or directories
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+
+# Rewrite clean slug URLs to the redirect handler
+# domain.com/myslug → r.php?c=myslug
+RewriteRule ^([a-zA-Z0-9_-]+)$ r.php?c=$1 [L,QSA]
