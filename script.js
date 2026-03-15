@@ -382,8 +382,12 @@
 
             const s = data.status;
             if (!s) {
-                // No scan has run yet — show nothing or a subtle hint
-                safetyBanner.style.display = 'none';
+                safetyBanner.className = 'safety-banner warning';
+                safetyBanner.innerHTML = `⚠️ <strong>Safe Browsing is inactive:</strong> ${escapeHtml(data.message || "Please add your safe_browsing_api_key in config.php to enable automatic URL scanning.")}`;
+                safetyBanner.style.display = 'block';
+
+                const sbStatus = $('safeBrowsingStatus');
+                if (sbStatus) sbStatus.innerHTML = '<span style="color:var(--text-dim);">⚠️ Safe Browsing: Not configured in <code>config.php</code></span>';
                 return;
             }
 
