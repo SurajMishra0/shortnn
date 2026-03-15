@@ -1,7 +1,7 @@
 <?php
 /**
  * ShortNN — Configuration
- * Edit this file to set your Google Safe Browsing API key.
+ * Copy this file to config.php and add your API key.
  * Get a free key: https://console.cloud.google.com/apis/api/safebrowsing.googleapis.com
  */
 

@@ -1,6 +1,10 @@
 # Data files
 data/urls.json
 data/visits/
+data/ratelimit/
+
+# Config (contains API keys)
+config.php
 
 # OS
 .DS_Store
