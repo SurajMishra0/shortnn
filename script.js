@@ -4,6 +4,7 @@
     const $ = id => document.getElementById(id);
     const longUrlInput = $('longUrl');
     const customSlugInput = $('customSlug');
+    const urlPasswordInput = $('urlPassword');
     const honeypotInput = $('honeypot');
     const shortenBtn = $('shortenBtn');
     const resultBox = $('result');
@@ -31,6 +32,15 @@
     const statUniqueIps = $('statUniqueIps');
     const countryList = $('countryList');
     const visitorLog = $('visitorLog');
+
+    // Password Modal
+    const pwModalOverlay = $('pwModalOverlay');
+    const pwModal = $('pwModal');
+    const pwModalTitle = $('pwModalTitle');
+    const pwModalDesc = $('pwModalDesc');
+    const pwModalInput = $('pwModalInput');
+    const pwModalSubmit = $('pwModalSubmit');
+    const pwModalCancel = $('pwModalCancel');
 
     const API = 'api.php';
 
@@ -141,7 +151,9 @@
                 website: honeypotInput ? honeypotInput.value : '',
             });
             const slug = customSlugInput.value.trim();
+            const password = urlPasswordInput.value.trim();
             if (slug) body.append('slug', slug);
+            if (password) body.append('password', password);
 
             const res = await fetch(`${API}?action=create`, { method: 'POST', body });
             const data = await res.json();
@@ -155,6 +167,7 @@
 
             longUrlInput.value = '';
             customSlugInput.value = '';
+            urlPasswordInput.value = '';
 
             // Refresh token for next creation
             fetchToken();
@@ -250,10 +263,13 @@
         const newUrl = prompt(`Edit destination URL for "${code}":`, currentUrl);
         if (newUrl === null || newUrl.trim() === '' || newUrl.trim() === currentUrl) return;
 
+        const password = await askPassword('Password Required', `Enter the password for "${code}" to edit it (leave blank if none).`);
+        if (password === null) return; // user cancelled the modal
+
         try {
             const res = await fetch(`${API}?action=edit`, {
                 method: 'POST',
-                body: new URLSearchParams({ code, url: newUrl.trim() })
+                body: new URLSearchParams({ code, url: newUrl.trim(), password: password || '' })
             });
             const data = await res.json();
             if (data.success) { showToast('URL updated successfully'); loadUrls(); }
@@ -265,10 +281,14 @@
 
     window.deleteUrl = async (code) => {
         if (!confirm(`Delete short URL "${code}"?`)) return;
+
+        const password = await askPassword('Password Required', `Enter the password for "${code}" to delete it (leave blank if none).`);
+        if (password === null) return; // user cancelled the modal
+
         try {
             const res = await fetch(`${API}?action=delete`, {
                 method: 'POST',
-                body: new URLSearchParams({ code })
+                body: new URLSearchParams({ code, password: password || '' })
             });
             const data = await res.json();
             if (data.success) { showToast('Deleted'); loadUrls(); }
@@ -388,6 +408,40 @@
 
     loadUrls();
     setInterval(loadUrls, 30000);
+
+    // ────────────────────────────────
+    // Password Modal Helper
+    // ────────────────────────────────
+
+    function askPassword(title, desc) {
+        return new Promise((resolve) => {
+            pwModalTitle.textContent = title;
+            pwModalDesc.textContent = desc;
+            pwModalInput.value = '';
+            pwModalOverlay.classList.add('open');
+            pwModal.classList.add('open');
+            document.body.style.overflow = 'hidden';
+            pwModalInput.focus();
+
+            function finish(val) {
+                pwModalOverlay.classList.remove('open');
+                pwModal.classList.remove('open');
+                document.body.style.overflow = '';
+                pwModalSubmit.removeEventListener('click', onSubmit);
+                pwModalCancel.removeEventListener('click', onCancel);
+                pwModalInput.removeEventListener('keydown', onKey);
+                resolve(val);
+            }
+
+            function onSubmit() { finish(pwModalInput.value.trim()); }
+            function onCancel() { finish(null); }
+            function onKey(e) { if (e.key === 'Enter') onSubmit(); if (e.key === 'Escape') onCancel(); }
+
+            pwModalSubmit.addEventListener('click', onSubmit);
+            pwModalCancel.addEventListener('click', onCancel);
+            pwModalInput.addEventListener('keydown', onKey);
+        });
+    }
 
     // ────────────────────────────────
     // Safety Status Banner (from cron scan)

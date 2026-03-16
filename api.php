@@ -267,7 +267,13 @@ switch ($action) {
             do { $code = generateCode(); } while (isset($data[$code]));
         }
 
-        $data[$code] = ['url' => $url, 'created' => date('c'), 'visits' => 0];
+        $password = trim($_POST['password'] ?? '');
+        $urlData = ['url' => $url, 'created' => date('c'), 'visits' => 0];
+        if ($password !== '') {
+            $urlData['password'] = password_hash($password, PASSWORD_DEFAULT);
+        }
+
+        $data[$code] = $urlData;
         writeData($data);
         respond(['success' => true, 'code' => $code, 'url' => $url]);
         break;
@@ -305,6 +311,14 @@ switch ($action) {
         if (!isset($data[$code]))
             respond(['success' => false, 'error' => 'Short URL not found'], 404);
 
+        $storedHash = $data[$code]['password'] ?? null;
+        if ($storedHash !== null) {
+            $providedPassword = $_POST['password'] ?? '';
+            if (!password_verify($providedPassword, $storedHash)) {
+                respond(['success' => false, 'error' => 'Incorrect password'], 403);
+            }
+        }
+
         $data[$code]['url'] = $url;
         writeData($data);
         respond(['success' => true]);
@@ -323,6 +337,14 @@ switch ($action) {
         $data = readData();
         if (!isset($data[$code]))
             respond(['success' => false, 'error' => 'Short URL not found'], 404);
+
+        $storedHash = $data[$code]['password'] ?? null;
+        if ($storedHash !== null) {
+            $providedPassword = $_POST['password'] ?? '';
+            if (!password_verify($providedPassword, $storedHash)) {
+                respond(['success' => false, 'error' => 'Incorrect password'], 403);
+            }
+        }
 
         unset($data[$code]);
         writeData($data);
